@@ -13,9 +13,14 @@ export const BIO_MAX = 160;
  *  from throwing (they may split emoji modifiers, but never crash). */
 const segmenter: { segment: (s: string) => Iterable<{ segment: string }> } | null = (() => {
   try {
-    if (typeof Intl !== "undefined" && typeof (Intl as { Segmenter?: unknown }).Segmenter === "function") {
-      return new (Intl as unknown as { Segmenter: new (l: undefined, o: { granularity: "grapheme" }) => { segment: (s: string) => Iterable<{ segment: string }> } })(undefined, { granularity: "grapheme" });
-    }
+    const Seg = (
+      Intl as unknown as {
+        Segmenter?: new (locales: undefined, opts: { granularity: "grapheme" }) => {
+          segment: (s: string) => Iterable<{ segment: string }>;
+        };
+      }
+    ).Segmenter;
+    if (typeof Seg === "function") return new Seg(undefined, { granularity: "grapheme" });
   } catch {
     /* fall through to the code-point splitter */
   }

@@ -8,7 +8,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Download, Shield, X } from "lucide-react";
+import { Check, Download, Shield, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { UpdateInfo } from "@/lib/update-repo";
 
 interface UpdateScreenProps {
@@ -105,39 +106,71 @@ export function UpdateScreen({ open, updateInfo, onLater, onUpdate }: UpdateScre
         handleLater();
       }
     }}>
-      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogContent hideClose className="sm:max-w-md max-h-[90vh] overflow-y-auto no-scrollbar">
+        {/* Single close button — focus outline suppressed to avoid the ring artifact */}
+        {canDismiss && (
+          <button
+            onClick={handleLater}
+            aria-label="Dismiss"
+            className="update-rise absolute right-3.5 top-3.5 z-10 grid place-items-center w-8 h-8 rounded-full text-muted-foreground transition-all duration-200 hover:bg-muted hover:text-foreground active:scale-90 focus:outline-none focus-visible:outline-none"
+          >
+            <X size={17} strokeWidth={2.25} />
+          </button>
+        )}
+
         {/* Header */}
-        <DialogHeader>
-          <div className="flex items-start justify-between gap-4">
-            <DialogTitle className="text-xl">{updateInfo.title}</DialogTitle>
-            {canDismiss && (
-              <button
-                onClick={handleLater}
-                className="rounded-full p-1 hover:bg-muted transition-colors"
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
+        <DialogHeader className="pr-8 gap-1.5">
+          <div
+            className={cn(
+              "update-pop mx-auto mt-1 grid h-14 w-14 place-items-center rounded-2xl",
+              "bg-gradient-to-br from-primary to-[oklch(0.55_0.2_260)] text-primary-foreground",
+              "update-float update-glow",
+              stage === "downloading" && "animate-pulse",
+            )}
+          >
+            {stage === "verifying" || stage === "installing" ? (
+              <Check className="h-6 w-6 update-pop" strokeWidth={2.5} />
+            ) : (
+              <Download className="h-6 w-6" strokeWidth={2.25} />
+            )}
+          </div>
+          <div className="flex items-center justify-center gap-2 pt-1">
+            <DialogTitle className="text-center text-xl leading-tight">{updateInfo.title}</DialogTitle>
+            {updateInfo.latestVersionName && (
+              <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-semibold text-primary tabular-nums whitespace-nowrap">
+                v{updateInfo.latestVersionName}
+              </span>
             )}
           </div>
           {releaseDateFormatted && (
-            <DialogDescription className="text-sm">
+            <DialogDescription className="text-center text-sm">
               Released {releaseDateFormatted}
             </DialogDescription>
           )}
         </DialogHeader>
 
         {/* Description */}
-        <div className="mt-4 space-y-3">
-          <p className="text-sm text-muted-foreground">{updateInfo.description}</p>
+        <div className="space-y-3">
+          {updateInfo.description && (
+            <p
+              className="update-rise text-sm text-muted-foreground text-center"
+              style={{ animationDelay: "90ms" }}
+            >
+              {updateInfo.description}
+            </p>
+          )}
 
           {/* Changelog */}
           {updateInfo.changes.length > 0 && (
-            <div className="rounded-lg bg-muted/50 p-4">
-              <h4 className="text-sm font-semibold mb-2">What's New</h4>
+            <div className="update-rise rounded-xl bg-muted/50 p-4" style={{ animationDelay: "160ms" }}>
+              <h4 className="text-sm font-semibold mb-2">What&apos;s New</h4>
               <ul className="space-y-1.5">
                 {updateInfo.changes.map((change, i) => (
-                  <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                  <li
+                    key={i}
+                    className="update-rise flex items-start gap-2 text-sm text-muted-foreground"
+                    style={{ animationDelay: `${220 + i * 70}ms` }}
+                  >
                     <span className="mt-1.5 h-1 w-1 rounded-full bg-primary shrink-0" />
                     <span>{change}</span>
                   </li>
@@ -148,11 +181,11 @@ export function UpdateScreen({ open, updateInfo, onLater, onUpdate }: UpdateScre
 
           {/* Mandatory warning */}
           {isMandatory && (
-            <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3 flex items-start gap-3">
-              <Shield className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+            <div className="update-rise rounded-lg border border-destructive/20 bg-destructive/10 p-3 flex items-start gap-3">
+              <Shield className="h-5 w-5 shrink-0 mt-0.5 text-destructive" />
               <div>
                 <p className="text-sm font-medium text-destructive">Required Update</p>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="mt-1 text-xs text-muted-foreground">
                   This update contains critical improvements. Please update to continue using ChatZ.
                 </p>
               </div>
@@ -161,46 +194,56 @@ export function UpdateScreen({ open, updateInfo, onLater, onUpdate }: UpdateScre
 
           {/* Error message */}
           {error && (
-            <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3">
+            <div className="update-pop rounded-lg border border-destructive/20 bg-destructive/10 p-3">
               <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
 
           {/* Progress bar */}
           {(stage === "downloading" || stage === "verifying") && (
-            <div className="space-y-2">
+            <div className="update-pop space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">
-                  {stage === "downloading" ? "Downloading..." : "Verifying..."}
+                  {stage === "downloading" ? "Downloading update..." : "Verifying integrity..."}
                 </span>
-                {stage === "downloading" && (
-                  <span className="tabular-nums">{downloadProgress}%</span>
+                {stage === "downloading" ? (
+                  <span className="font-semibold tabular-nums text-primary">{downloadProgress}%</span>
+                ) : (
+                  <Check className="h-4 w-4 text-primary update-pop" />
                 )}
               </div>
-              <Progress value={stage === "downloading" ? downloadProgress : 100} className="h-2" />
+              <div className="relative overflow-hidden rounded-full">
+                <Progress
+                  value={stage === "downloading" ? downloadProgress : 100}
+                  className="h-2.5 transition-all duration-300"
+                />
+                {stage === "downloading" && (
+                  <div className="update-shimmer pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+                )}
+              </div>
             </div>
           )}
 
           {/* Installing indicator */}
           {stage === "installing" && (
-            <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+            <div className="update-pop flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
               <span
                 className="h-4 w-4 rounded-full border-2 border-primary/25 border-t-primary animate-spin"
                 role="status"
                 aria-label="Installing"
               />
-              Installing update...
+              Launching installer...
             </div>
           )}
         </div>
 
         {/* Actions */}
-        <div className="mt-6 flex items-center gap-3">
+        <div className="update-rise mt-1 flex items-center gap-3" style={{ animationDelay: "300ms" }}>
           {isMandatory ? (
             <Button
               onClick={handleUpdate}
               disabled={stage !== "idle"}
-              className="flex-1"
+              className="flex-1 text-base transition-transform active:scale-[0.97]"
               size="lg"
             >
               {stage === "idle" ? (
@@ -220,13 +263,18 @@ export function UpdateScreen({ open, updateInfo, onLater, onUpdate }: UpdateScre
             </Button>
           ) : (
             <>
-              <Button variant="outline" onClick={handleLater} disabled={stage !== "idle"} className="flex-1">
+              <Button
+                variant="outline"
+                onClick={handleLater}
+                disabled={stage !== "idle"}
+                className="flex-1 text-base transition-transform active:scale-[0.97]"
+              >
                 Later
               </Button>
               <Button
                 onClick={handleUpdate}
                 disabled={stage !== "idle"}
-                className="flex-1"
+                className="flex-1 text-base transition-transform active:scale-[0.97]"
                 size="lg"
               >
                 {stage === "idle" ? (

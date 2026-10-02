@@ -62,14 +62,6 @@ function Pulse() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [friends, setFriends] = useState<PublicProfile[] | null>(null);
   const [refreshingFriends, setRefreshingFriends] = useState(false);
-  const [hiddenFriendUids, setHiddenFriendUids] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem("chatz.hidden_friends");
-      return stored ? new Set(JSON.parse(stored)) : new Set();
-    } catch {
-      return new Set();
-    }
-  });
 
   // Pull every friend's snapshot straight from the server; each FriendCard's
   // live subscription picks the fresh document up and re-renders, mode included.
@@ -89,27 +81,12 @@ function Pulse() {
     }
   };
 
-  const toggleFriendHidden = (uid: string) => {
-    setHiddenFriendUids((prev) => {
-      const next = new Set(prev);
-      if (next.has(uid)) {
-        next.delete(uid);
-      } else {
-        next.add(uid);
-      }
-      localStorage.setItem("chatz.hidden_friends", JSON.stringify([...next]));
-      return next;
-    });
-  };
-
-  // Sort visible friends by screen time (highest first), then alphabetically for ties
-  const sortedVisibleFriends = useMemo(() => {
+  // Friends are always visible — sorted alphabetically; stat sorting needs the
+  // live per-card subscriptions, which render below in each FriendCard.
+  const sortedFriends = useMemo(() => {
     if (!friends) return [];
-    const visible = friends.filter((f) => !hiddenFriendUids.has(f.uid));
-    // We need stats to sort, but we can't access them here synchronously.
-    // Instead, sort alphabetically as fallback; actual sorting happens in FriendCard rendering.
-    return visible.sort((a, b) => a.name.localeCompare(b.name));
-  }, [friends, hiddenFriendUids]);
+    return [...friends].sort((a, b) => a.name.localeCompare(b.name));
+  }, [friends]);
 
   const fetchStats = async () => {
     setLoading(true);
@@ -484,13 +461,11 @@ function Pulse() {
             </div>
           ) : (
             <div className="space-y-3">
-              {sortedVisibleFriends.slice(0, FRIEND_CARDS).map((f) => (
+              {sortedFriends.slice(0, FRIEND_CARDS).map((f) => (
                 <FriendCard
                   key={f.uid}
                   friend={f}
                   unread={isChatUnread(chats.get(f.uid), markers)}
-                  onToggleHide={() => toggleFriendHidden(f.uid)}
-                  isHidden={hiddenFriendUids.has(f.uid)}
                 />
               ))}
             </div>
@@ -522,13 +497,9 @@ function HeroTile({ icon, label, value }: { icon: ReactNode; label: string; valu
 function FriendCard({
   friend,
   unread,
-  onToggleHide,
-  isHidden,
 }: {
   friend: PublicProfile;
   unread: boolean;
-  onToggleHide: () => void;
-  isHidden: boolean;
 }) {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -623,20 +594,6 @@ function FriendCard({
             </>
           )}
         </Link>
-        <button
-          onClick={onToggleHide}
-          className="w-9 h-9 shrink-0 rounded-full bg-secondary grid place-items-center active:scale-95 transition"
-          aria-label={isHidden ? "Show this friend's card" : "Hide this friend's card"}
-        >
-          {isHidden ? (
-            <ChevronRight size={16} className="text-muted-foreground" />
-          ) : (
-            <ChevronDown
-              size={16}
-              className="text-muted-foreground transition-transform duration-300 group-data-[state=open]:rotate-180"
-            />
-          )}
-        </button>
         <CollapsibleTrigger asChild>
           <button
             type="button"

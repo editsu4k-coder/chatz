@@ -244,7 +244,10 @@ function ChatDetail() {
     const now = Date.now();
     if (now - lastSendAt < MIN_SEND_INTERVAL) return;
     setLastSendAt(now);
-    const time = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+    const time = (() => {
+      const d = new Date(now);
+      return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+    })();
     appendMessage(chatId, {
       id: String(Date.now()),
       author: profile?.name || "You",
