@@ -308,12 +308,15 @@ service cloud.firestore {
       allow write: if isSelf(uid);
     }
 
-    // App configuration and update metadata — read-only for authenticated users.
+    // App configuration and update metadata — public read, admin-only write.
     // The document appConfig/updateMetadata holds version information for the
-    // in-app update system. No user can write to this collection; only Firebase
-    // Console administrators can update it.
+    // in-app update system. Reads must not require auth: the native update
+    // listener starts before the Firebase session is restored, and a signed-in
+    // requirement made it fail with PERMISSION_DENIED on every cold start.
+    // The content is non-sensitive (version number + download URL), and writes
+    // remain closed to every client — only console/CLI admins can change it.
     match /appConfig/{configId} {
-      allow read: if signedIn();
+      allow read: if true;
       allow write: if false;
     }
 

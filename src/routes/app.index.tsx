@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useProfile, writeProfile } from "@/lib/profile-store";
 import { Avatar } from "@/components/Avatar";
 import { ChatZMark } from "@/components/Logo";
