@@ -236,6 +236,19 @@ function AppShell() {
     };
   }, [ready]);
 
+  // About → "Check for updates" runs its own forced check and hands the result
+  // here: the modal lives on the shell, and "Later" only hid it.
+  useEffect(() => {
+    const show = (e: Event) => {
+      const info = (e as CustomEvent).detail as UpdateInfo | undefined;
+      if (!info) return;
+      setUpdateInfo(info);
+      setShowUpdateScreen(true);
+    };
+    window.addEventListener("chatz:show-update", show);
+    return () => window.removeEventListener("chatz:show-update", show);
+  }, []);
+
   // Any writeProfile() from a settings screen lands here and is mirrored to
   // Firestore, so the local cache can never drift away from the real profile.
   useEffect(() => {

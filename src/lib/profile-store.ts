@@ -160,7 +160,9 @@ export function applyTheme(p: Profile) {
 }
 
 export function useProfile() {
-  const [profile, setProfile] = useState<Profile | null>(null);
+  // Hydrate synchronously: an async first paint would render one frame of
+  // DEFAULT_PRIVACY, and the privacy switches visibly animate that flip.
+  const [profile, setProfile] = useState<Profile | null>(() => readProfile());
   useEffect(() => {
     const p = readProfile();
     setProfile(p);

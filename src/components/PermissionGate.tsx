@@ -2,16 +2,22 @@
 // Android permissions is missing (revoked later, or never granted). The user
 // can grant here, or explicitly continue with limited access — ChatZ then
 // shows honest "no access" states instead of fake data.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, ExternalLink, Loader2, ShieldAlert } from "lucide-react";
 import { ChatZMark } from "./Logo";
 import { RestrictedSettingsNote } from "./RestrictedSettingsNote";
 import {
+  RestrictedUsageDialog,
+  type RestrictedStage,
+} from "./RestrictedUsageDialog";
+import {
   REQUIRED_PERMS,
+  checkPerm,
   openPermSettings,
   type PermKey,
   type PermState,
 } from "@/lib/app-permissions";
+import { VibeStats } from "@/lib/vibe-stats";
 
 export function PermissionGate({
   state,
@@ -27,8 +33,32 @@ export function PermissionGate({
   const [busy, setBusy] = useState<PermKey | null>(null);
   const [checking, setChecking] = useState(false);
 
+  // Restricted-settings state machine. Every Android-settings round trip ends
+  // in a fresh `state` prop (recheck here + app.tsx's appStateChange refresh),
+  // so a pending attempt that comes back denied decides the next phase — the
+  // permission itself is never assumed. Only user taps open Settings, so a
+  // back-out can never loop.
+  const pendingStageRef = useRef<RestrictedStage | null>(null);
+  const [stage, setStage] = useState<RestrictedStage | null>(null);
+  const [dlgBusy, setDlgBusy] = useState<"appInfo" | "usage" | "try" | null>(null);
+  const [stillDenied, setStillDenied] = useState(false);
+
+  useEffect(() => {
+    if (state.usage) {
+      pendingStageRef.current = null;
+      setStage(null);
+      setStillDenied(false);
+      return;
+    }
+    if (!pendingStageRef.current) return;
+    const next = pendingStageRef.current;
+    pendingStageRef.current = null;
+    setStage(next);
+  }, [state]);
+
   const open = async (id: PermKey) => {
     setBusy(id);
+    if (id === "usage") pendingStageRef.current = "guide";
     try {
       await openPermSettings(id);
       // A granted runtime dialog (notifications) resolves without the app ever
@@ -37,8 +67,44 @@ export function PermissionGate({
       recheck();
     } catch {
       /* the settings screen may refuse to open on some OEMs; the user can grant manually */
+      pendingStageRef.current = null;
     }
     setBusy(null);
+  };
+
+  const openAppInfo = async () => {
+    setDlgBusy("appInfo");
+    pendingStageRef.current = "afterAppInfo";
+    try {
+      // Native side builds package:com.chatz.app dynamically — never hardcoded.
+      await VibeStats.openAppSettings();
+      recheck();
+    } catch {
+      pendingStageRef.current = null;
+    }
+    setDlgBusy(null);
+  };
+
+  const openUsageFromDialog = async () => {
+    setDlgBusy("usage");
+    // Coming back denied stays on this phase — never bounce the user back to
+    // the first-screen guidance in a loop.
+    pendingStageRef.current = "afterAppInfo";
+    try {
+      await VibeStats.requestUsageAccess();
+      recheck();
+    } catch {
+      pendingStageRef.current = null;
+    }
+    setDlgBusy(null);
+  };
+
+  const tryAgain = async () => {
+    setDlgBusy("try");
+    const granted = await checkPerm("usage");
+    recheck();
+    setStillDenied(!granted);
+    setDlgBusy(null);
   };
 
   const checkAgain = () => {
@@ -119,7 +185,7 @@ export function PermissionGate({
         After changing a setting, come back here — the status updates automatically.
       </p>
 
-      {!state.usage && <RestrictedSettingsNote className="mt-4" />}
+      {!state.usage && !stage && <RestrictedSettingsNote className="mt-4" />}
 
       {onSkip && (
         <div className="mt-auto pt-8 flex flex-col items-center gap-2">
@@ -139,6 +205,18 @@ export function PermissionGate({
         >
           Sign out instead
         </button>
+      )}
+
+      {stage && !state.usage && (
+        <RestrictedUsageDialog
+          stage={stage}
+          busy={dlgBusy}
+          stillDenied={stillDenied}
+          onOpenAppInfo={openAppInfo}
+          onOpenUsageSettings={openUsageFromDialog}
+          onTryAgain={tryAgain}
+          onDismiss={() => setStage(null)}
+        />
       )}
     </div>
   );

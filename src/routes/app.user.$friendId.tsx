@@ -34,6 +34,7 @@ import {
   X,
   EyeOff,
   PauseCircle,
+  CloudOff,
   Check,
 } from "lucide-react";
 
@@ -452,6 +453,15 @@ function UserProfile() {
                 <p className="text-[12px] text-muted-foreground mt-1">
                   Waiting for today's sync
                   {stats.syncedAt ? ` · last update ${relTime(stats.syncedAt)}` : ""}
+                </p>
+              </div>
+            ) : stats.blocked ? (
+              <div className="text-center py-4">
+                <CloudOff size={22} className="mx-auto text-muted-foreground mb-2" />
+                <p className="text-[14px] font-medium">Not syncing right now</p>
+                <p className="text-[12px] text-muted-foreground mt-1">
+                  {whoThey}'s phone isn't sending stats at the moment — their sharing settings
+                  haven't changed. Numbers return on the next sync.
                 </p>
               </div>
             ) : (

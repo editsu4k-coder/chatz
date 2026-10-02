@@ -106,7 +106,10 @@ export function UpdateScreen({ open, updateInfo, onLater, onUpdate }: UpdateScre
         handleLater();
       }
     }}>
-      <DialogContent hideClose className="sm:max-w-md max-h-[90vh] overflow-y-auto no-scrollbar">
+      <DialogContent
+        hideClose
+        className="w-[calc(100%-2.5rem)] sm:max-w-md max-h-[90vh] overflow-y-auto no-scrollbar rounded-3xl border-border/60 shadow-[0_24px_64px_-16px_rgba(0,0,0,0.5)]"
+      >
         {/* Single close button — focus outline suppressed to avoid the ring artifact */}
         {canDismiss && (
           <button

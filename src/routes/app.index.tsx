@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  CloudOff,
   EyeOff,
   Flame,
   MessageCircle,
@@ -619,6 +620,10 @@ function FriendCard({
                 </span>
               )}
             </>
+          ) : stats.blocked ? (
+            <span className="text-[13px] text-muted-foreground flex items-center gap-1.5">
+              <CloudOff size={13} /> Not syncing right now
+            </span>
           ) : !stats.shared.screenTime ? (
             <span className="text-[13px] text-muted-foreground flex items-center gap-1.5">
               <EyeOff size={13} /> Screen time hidden
@@ -671,6 +676,11 @@ function FriendCard({
             <p className="text-[13px] text-muted-foreground px-0.5 flex items-center gap-1.5">
               <PauseCircle size={13} /> Stats sharing is paused — {friend.name}'s numbers stay
               hidden until they switch back to Active.
+            </p>
+          ) : stats?.blocked ? (
+            <p className="text-[13px] text-muted-foreground px-0.5 flex items-center gap-1.5">
+              <CloudOff size={13} /> {friend.name}'s phone isn't sending stats at the moment —
+              they'll reappear on the next sync.
             </p>
           ) : !fresh || !stats ? (
             <p className="text-[13px] text-muted-foreground px-0.5">

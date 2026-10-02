@@ -28,6 +28,7 @@ import {
   Smartphone,
   EyeOff,
   PauseCircle,
+  CloudOff,
   Ban,
   RefreshCw,
 } from "lucide-react";
@@ -307,6 +308,17 @@ function StatsDetail() {
               {name} turned on Silent mode. Nothing is shared until they switch back to Active.
             </p>
           </section>
+        ) : stats?.blocked && !isMe ? (
+          /* Active but not collecting (e.g. usage access lost after an update) —
+             never render that as "they hid their stats". */
+          <section className="rounded-3xl bg-surface border border-border/60 p-6 text-center">
+            <CloudOff size={24} className="mx-auto text-muted-foreground mb-2" />
+            <p className="text-[14px] font-medium">Not syncing right now</p>
+            <p className="text-[12px] text-muted-foreground mt-1">
+              {name}'s phone isn't sending stats at the moment — their sharing settings haven't
+              changed. Numbers return on the next sync.
+            </p>
+          </section>
         ) : (
           <>
             {(loading || stats) && (
@@ -561,6 +573,7 @@ function fromLive(live: VibeStatsData): UsageStats {
     day: localDay(),
     syncedAt: new Date().toISOString(),
     mode: "active",
+    blocked: false,
     // Live device data is the owner's own view, so show it in full.
     shared: ALL_SHARED,
     screenTimeTodayMs: live.screenTimeTodayMs,

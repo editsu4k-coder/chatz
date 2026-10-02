@@ -82,6 +82,13 @@ export type UsageStats = {
    * must show "Stats sharing is paused" rather than an empty stat sheet.
    */
   mode: "active" | "silent";
+  /**
+   * Active but unable to collect right now (usage access lost — e.g. after an
+   * app update resets it — or collection failed). The neutral document must
+   * never read as "the owner hid their stats": the friend side shows "not
+   * syncing" instead. The native worker always clears this on a real upload.
+   */
+  blocked: boolean;
 };
 
 export type Presence = {
@@ -162,6 +169,7 @@ function parseUsage(uid: string, d: Record<string, unknown>): UsageStats {
     isCharging: d.isCharging === true,
     shared: parseShared(d.shared),
     mode: d.mode === "silent" ? "silent" : "active",
+    blocked: d.blocked === true,
   };
 }
 
@@ -299,6 +307,9 @@ export async function pushUsageSnapshot(
         : canShare
           ? shared
           : SHARED_NONE,
+      // "Active but couldn't collect" is its own honest state — distinct from
+      // the owner switching categories off, which is what SHARED_NONE means.
+      blocked: !silent && !canShare,
       syncedAt: serverTimestamp(),
     };
 

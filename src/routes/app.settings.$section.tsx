@@ -615,6 +615,11 @@ function About() {
       
       if (result.hasUpdate && result.updateInfo) {
         setUpdateStatus(`Update available: ${result.updateInfo.latestVersionName}`);
+        // "Later" only hides the modal — a manual check must bring it back,
+        // so hand the info to the app shell which owns the UpdateScreen.
+        window.dispatchEvent(
+          new CustomEvent("chatz:show-update", { detail: result.updateInfo }),
+        );
       } else if (result.status === "up_to_date") {
         setUpdateStatus("You're up to date");
       } else if (result.status === "check_failed") {
