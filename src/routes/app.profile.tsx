@@ -1,5 +1,7 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { App as NativeApp } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 import {
   useProfile,
   writeProfile,
@@ -275,7 +277,7 @@ function ProfilePage() {
           {logoutLoading ? "Signing out…" : "Sign out"}
         </button>
 
-        <p className="text-center text-xs text-muted-foreground pt-2">ChatZ · v1.0</p>
+        <AppVersionFooter />
       </div>
 
       {editing && profile && (
@@ -347,6 +349,18 @@ function ToggleRow({ label, defaultOn }: { label: string; defaultOn?: boolean })
       <Switch on={on} onChange={setOn} />
     </div>
   );
+}
+
+function AppVersionFooter() {
+  const [label, setLabel] = useState("ChatZ");
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) {
+      NativeApp.getInfo()
+        .then((i) => setLabel(`ChatZ · v${i.version}`))
+        .catch(() => {});
+    }
+  }, []);
+  return <p className="text-center text-xs text-muted-foreground pt-2">{label}</p>;
 }
 
 function LinkRow({

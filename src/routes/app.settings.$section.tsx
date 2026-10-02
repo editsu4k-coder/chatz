@@ -582,6 +582,17 @@ function About() {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [versionLabel, setVersionLabel] = useState("Version …");
+
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) {
+      NativeApp.getInfo()
+        .then((i) => setVersionLabel(`Version ${i.version} · Android`))
+        .catch(() => setVersionLabel("Version · Android"));
+    } else {
+      setVersionLabel("Web preview");
+    }
+  }, []);
 
   const handleCheckForUpdates = async () => {
     if (checkingUpdate || !Capacitor.isNativePlatform()) return;
@@ -622,7 +633,7 @@ function About() {
         <div className="mt-3 text-[22px] font-semibold tracking-tight">
           Chat<span className="font-bold">Z</span>
         </div>
-        <div className="text-[12px] text-muted-foreground mt-0.5">Version 1.0 · Android</div>
+        <div className="text-[12px] text-muted-foreground mt-0.5">{versionLabel}</div>
         <p className="mt-3 text-[13px] text-muted-foreground leading-relaxed max-w-xs">
           A private, friend-only screen-time app. Share how your day looks with the people you
           trust — never a public feed, never ads.
