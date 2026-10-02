@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Clock,
   EyeOff,
+  Flame,
   MessageCircle,
   Moon,
   PauseCircle,
@@ -40,7 +41,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Capacitor } from "@capacitor/core";
 import { listFriends } from "@/lib/friends-repo";
-import type { PublicProfile } from "@/lib/profile-repo";
+import { bumpStreak, type PublicProfile } from "@/lib/profile-repo";
 import { isChatUnread, useChatsOverview, useReadMarkers } from "@/lib/dm-repo";
 
 export const Route = createFileRoute("/app/")({
@@ -62,6 +63,30 @@ function Pulse() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [friends, setFriends] = useState<PublicProfile[] | null>(null);
   const [refreshingFriends, setRefreshingFriends] = useState(false);
+  const [streak, setStreak] = useState<number | null>(null);
+
+  // The day-streak advances on first launch each day; re-bumping when the app
+  // returns to the foreground covers the day rolling over while it stays open.
+  useEffect(() => {
+    const uid = profile?.uid;
+    if (!uid) return;
+    let cancelled = false;
+    const bump = () =>
+      bumpStreak(uid)
+        .then((s) => {
+          if (!cancelled) setStreak(s);
+        })
+        .catch(() => {});
+    bump();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") bump();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [profile?.uid]);
 
   // Pull every friend's snapshot straight from the server; each FriendCard's
   // live subscription picks the fresh document up and re-renders, mode included.
@@ -239,7 +264,27 @@ function Pulse() {
             </Link>
           )}
 
-          <div className="mt-5 flex items-center gap-2">
+          <div className="mt-5 flex items-center justify-end gap-2">
+            {stats && profile?.uid && (
+              <div className="flex-1 min-w-0">
+                <StatSocial
+                  ownerUid={profile.uid}
+                  day={localDay()}
+                  isSelf
+                  commentFirst
+                  className=""
+                />
+              </div>
+            )}
+            {streak != null && (
+              <span
+                className="h-8 px-2.5 rounded-full bg-white/15 flex items-center gap-1 text-[13px] font-medium tabular-nums shrink-0"
+                title={`${streak}-day streak`}
+                aria-label={`${streak}-day streak`}
+              >
+                <Flame size={14} className="text-warning" /> {streak}
+              </span>
+            )}
             <button
               onClick={fetchStats}
               disabled={loading}
@@ -256,11 +301,6 @@ function Pulse() {
                 <RefreshCw size={14} />
               )}
             </button>
-            {stats && profile?.uid && (
-              <div className="flex-1 min-w-0">
-                <StatSocial ownerUid={profile.uid} day={localDay()} isSelf className="" />
-              </div>
-            )}
           </div>
 
           {stats && (
@@ -594,6 +634,15 @@ function FriendCard({
             </>
           )}
         </Link>
+        {(friend.streak ?? 0) > 0 && (
+          <span
+            className="h-7 px-2 rounded-full bg-secondary flex items-center gap-1 text-[12px] font-medium text-muted-foreground tabular-nums shrink-0"
+            title={`${friend.name}'s ${friend.streak}-day streak`}
+            aria-label={`${friend.name}'s ${friend.streak}-day streak`}
+          >
+            <Flame size={12} className="text-warning" /> {friend.streak}
+          </span>
+        )}
         <CollapsibleTrigger asChild>
           <button
             type="button"

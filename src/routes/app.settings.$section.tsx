@@ -289,7 +289,8 @@ function PrivacyPolicy() {
         <p>
           <b className="text-foreground">Social data.</b> Friend requests and connections, messages
           you send, reactions and comments on stat cards, in-app notifications, conversation read
-          state, and presence (online / last seen) so friends can tell when you're around. If you
+          state, your daily-use streak (the count of consecutive days you've opened ChatZ, shown to
+          friends), and presence (online / last seen) so friends can tell when you're around. If you
           block someone the block is stored so the backend can enforce it — blocked people can't
           read your profile or stats, message you, or see your presence. If you report someone, the
           report is stored privately: the reported person can never read it or see who reported
@@ -493,6 +494,11 @@ function Help() {
       id: "f5",
       q: "How do reactions and comments work?",
       a: "Open a friend from the Friends tab and react or comment on their screen-time card. They get an in-app notification, and you can reply in threads on the card. The card owner can reply too.",
+    },
+    {
+      id: "streak",
+      q: "What is the 🔥 streak number?",
+      a: "It counts the consecutive days you've opened ChatZ — one more each day you come back, reset to 1 after a missed day. Your streak sits on your Home card and friends can see it on your card too. It's just a habit badge: no data behind it beyond the day counter itself.",
     },
     {
       id: "f6",

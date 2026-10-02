@@ -29,6 +29,7 @@ export function StatSocial({
   day,
   isSelf = false,
   compact = false,
+  commentFirst = false,
   className = "mt-4",
 }: {
   ownerUid: string;
@@ -36,6 +37,8 @@ export function StatSocial({
   isSelf?: boolean;
   /** Chip styling for cards that sit on a normal surface instead of the hero gradient. */
   compact?: boolean;
+  /** Put the comments button at the start of the row instead of the end. */
+  commentFirst?: boolean;
   /** Spacing override for the chip row. */
   className?: string;
 }) {
@@ -90,9 +93,23 @@ export function StatSocial({
 
   const totalReactions = Object.values(summary.counts).reduce((a, b) => a + b, 0);
 
+  const commentBtn = (
+    <button
+      onClick={() => setOpen(true)}
+      className={`px-3 rounded-full text-[13px] flex items-center gap-1.5 active:scale-95 ${
+        commentFirst ? "shrink-0" : "ml-auto"
+      } ${compact ? "h-7 bg-secondary text-foreground" : "h-8 bg-white/15"}`}
+      aria-label="Open comments"
+    >
+      <MessageCircle size={14} />
+      {comments.length > 0 ? comments.length : ""}
+    </button>
+  );
+
   return (
     <>
       <div className={`flex items-center gap-1.5 flex-wrap ${className}`.trim()}>
+        {commentFirst && commentBtn}
         {REACTIONS.map((r) => {
           const count = summary.counts[r.key] ?? 0;
           const mine = summary.mine === r.key;
@@ -131,16 +148,7 @@ export function StatSocial({
             No reactions yet
           </span>
         )}
-
-        <button
-          onClick={() => setOpen(true)}
-          className={`px-3 rounded-full text-[13px] flex items-center gap-1.5 active:scale-95 ml-auto ${
-            compact ? "h-7 bg-secondary text-foreground" : "h-8 bg-white/15"
-          }`}
-        >
-          <MessageCircle size={14} />
-          {comments.length > 0 ? comments.length : ""}
-        </button>
+        {!commentFirst && commentBtn}
       </div>
 
       {open && (

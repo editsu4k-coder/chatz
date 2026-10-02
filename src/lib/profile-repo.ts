@@ -54,6 +54,8 @@ export type PublicProfile = {
   avatarId?: string;
   /** Optional short bio shown on the profile page. */
   bio?: string;
+  /** Consecutive days the user has opened ChatZ. Written by bumpStreak on launch. */
+  streak?: number;
   /** Optional social links (instagram, x, github, website). */
   socials?: Socials;
 };
@@ -155,6 +157,7 @@ function toPublicProfile(snap: QueryDocumentSnapshot | { id: string; data: () =>
     color: asString(d.color) || colorForHandle(handle || snap.id),
     avatarId: (d.avatarId as string) ?? undefined,
     bio: asString(d.bio) || undefined,
+    streak: asNumber(d.streak),
     socials: hasSocials ? socials : undefined,
   };
 }
@@ -413,6 +416,30 @@ export async function changeHandle(uid: string, rawHandle: string): Promise<stri
   }
 
   return handle;
+}
+
+/**
+ * Advance the daily login streak and persist it on the public profile, so
+ * friends can see it. A streak counts local calendar days: opening the app on
+ * the day after the last visit extends it, any skipped day restarts at 1, and
+ * repeat launches on the same day are free (no write at all).
+ */
+export async function bumpStreak(uid: string): Promise<number> {
+  const ref = profileRef(uid);
+  const snap = await getDoc(ref);
+  const d = (snap.data() ?? {}) as Record<string, unknown>;
+
+  const now = new Date();
+  const key = (t: Date) =>
+    `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+  const today = key(now);
+  if (asString(d.streakDay) === today) return asNumber(d.streak) ?? 1;
+
+  const yesterday = key(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+  const next = asString(d.streakDay) === yesterday ? Math.max(1, asNumber(d.streak) ?? 1) + 1 : 1;
+
+  await setDoc(ref, { streak: next, streakDay: today }, { merge: true });
+  return next;
 }
 
 // -------------------------------------------------------------------- reads
