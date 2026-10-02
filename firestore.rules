@@ -1,0 +1,502 @@
+rules_version = '2';
+
+// rules_version 2: a match block applies ONLY to its own path. Nested
+// subcollections need their own match block; they are not covered by the parent.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // Friendships are stored with members sorted ascending, so the only two
+    // possible paths for a pair are a_b and b_a. Checking both needs no ordering
+    // logic in rules (the rules language has no ternary operator).
+    function areFriends(a, b) {
+      return exists(/databases/$(database)/documents/friendships/$(a + "_" + b))
+          || exists(/databases/$(database)/documents/friendships/$(b + "_" + a));
+    }
+
+    // A block in EITHER direction. The block flow always severs an existing
+    // friendship in the same batch (enforced by the blocks/create rule below),
+    // so a blocked pair can never also be friends. Every friendship-gated rule
+    // therefore needs no extra block check; this helper covers the two surfaces
+    // that would otherwise not be friendship-gated: reading a profile and
+    // reading friend counts.
+    function blockedPair(a, b) {
+      return exists(/databases/$(database)/documents/blocks/$(a + "_" + b))
+          || exists(/databases/$(database)/documents/blocks/$(b + "_" + a));
+    }
+
+    // A friendship between the caller and `other` that THIS write creates.
+    // exists() reads pre-write state, existsAfter() reads post-write state, so
+    // the pair of them is only true when the friendship is created in the same
+    // batch/transaction as the write being gated (e.g. the friend-count bump).
+    function friendshipGained(other) {
+      return (!exists(/databases/$(database)/documents/friendships/$(request.auth.uid + "_" + other))
+              && existsAfter(/databases/$(database)/documents/friendships/$(request.auth.uid + "_" + other)))
+          || (!exists(/databases/$(database)/documents/friendships/$(other + "_" + request.auth.uid))
+              && existsAfter(/databases/$(database)/documents/friendships/$(other + "_" + request.auth.uid)));
+    }
+
+    function friendshipLost(other) {
+      return (exists(/databases/$(database)/documents/friendships/$(request.auth.uid + "_" + other))
+              && !existsAfter(/databases/$(database)/documents/friendships/$(request.auth.uid + "_" + other)))
+          || (exists(/databases/$(database)/documents/friendships/$(other + "_" + request.auth.uid))
+              && !existsAfter(/databases/$(database)/documents/friendships/$(other + "_" + request.auth.uid)));
+    }
+
+    // The 24-hour lifecycle is enforced at WRITE time: a fresh expiresAt must be
+    // ~24h from server-now (±1h for client clock skew). There is deliberately NO
+    // read-time expiry check — a rule inspecting resource.data would make every
+    // list query that could return an expired document fail as a whole
+    // (Firestore does not filter silently). Clients filter expired items out of
+    // what they display, and a Firestore TTL policy deletes them server-side.
+    function freshExpiry() {
+      return request.resource.data.expiresAt is timestamp
+          && request.resource.data.expiresAt >= request.time + duration.value(23, 'h')
+          && request.resource.data.expiresAt <= request.time + duration.value(25, 'h');
+    }
+
+    // True only when the caller owns the reservation document for this handle.
+    // Plain get()/exists() is safe here: the handle is always claimed and committed
+    // in its own transaction BEFORE the profile document is written.
+    function ownsHandle(h) {
+      return exists(/databases/$(database)/documents/handles/$(h))
+          && get(/databases/$(database)/documents/handles/$(h)).data.uid == request.auth.uid;
+    }
+
+    // ---------------------------------------------------------------- profiles
+
+    match /users/{uid} {
+      // get and list are split on purpose. The block check needs exists() calls,
+      // and a list query cannot be filtered per document (any failing candidate
+      // denies the WHOLE query), so directory reads stay open to signed-in users
+      // while single-profile reads honor blocks in both directions. A search
+      // result still showing a blocker's public card is inert: their stats,
+      // chats, presence and every interaction are denied elsewhere, and opening
+      // the profile itself fails this get.
+      allow get: if isSelf(uid) || (signedIn() && !blockedPair(request.auth.uid, uid));
+      allow list: if signedIn();
+
+      // A profile may only display a handle that its owner has reserved. Without
+      // this, anyone could write someone else's handle onto their own document.
+      allow create: if isSelf(uid) && ownsHandle(request.resource.data.handleLower);
+      allow update: if isSelf(uid)
+        && (request.resource.data.handleLower == resource.data.handleLower
+            || ownsHandle(request.resource.data.handleLower));
+      allow delete: if false;
+
+      // Firestore cannot hide individual fields on a readable document, so the
+      // private fields (email, date of birth, education) live in a companion doc
+      // that only the owner can read.
+      match /private/{docId} {
+        allow read, write: if isSelf(uid);
+      }
+    }
+
+    // ----------------------------------------------------------------- handles
+
+    // handles/{normalizedHandle} = { uid, createdAt }. The document ID is the
+    // reservation; create fails natively if the handle is already taken, which is
+    // what makes the claim race-free when combined with a client transaction.
+    match /handles/{handle} {
+      allow read: if signedIn();
+      allow create: if isSelf(request.resource.data.uid);
+      allow update: if false;
+      allow delete: if isSelf(resource.data.uid);
+    }
+
+    // --------------------------------------------------------- friend requests
+
+    // friendRequests/{senderUid}_{receiverUid}
+    match /friendRequests/{requestId} {
+      // `resource == null` covers getDoc() on a document that does not exist yet:
+      // dereferencing resource.data there makes the whole rule error out and the
+      // read is denied, which is what broke the first send of every friend request.
+      // A missing document has no data to leak, so allowing the "does not exist"
+      // answer reveals nothing.
+      allow read: if signedIn() && (resource == null
+                                 || resource.data.senderId == request.auth.uid
+                                 || resource.data.receiverId == request.auth.uid);
+
+      allow create: if signedIn()
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.receiverId != request.auth.uid
+        // A blocked pair may not (re)start a request in either direction.
+        && !blockedPair(request.auth.uid, request.resource.data.receiverId)
+        && requestId == request.resource.data.senderId + "_" + request.resource.data.receiverId
+        && request.resource.data.status == 'pending'
+        && request.resource.data.keys().hasOnly(['senderId', 'receiverId', 'status', 'createdAt', 'updatedAt']);
+
+      // The sender may never rewrite the pair, only the status. The pair is also
+      // frozen against blocks: exists() reads pre-batch state, so the block flow's
+      // own cancel/reject (same batch as the block document) still passes, while
+      // any later transition is denied for a blocked pair.
+      allow update: if signedIn()
+        && request.resource.data.senderId == resource.data.senderId
+        && request.resource.data.receiverId == resource.data.receiverId
+        && !blockedPair(resource.data.senderId, resource.data.receiverId)
+        && request.resource.data.keys().hasOnly(['senderId', 'receiverId', 'status', 'createdAt', 'updatedAt'])
+        && (
+             // receiver accepts or rejects a pending request
+             (resource.data.receiverId == request.auth.uid
+               && resource.data.status == 'pending'
+               && request.resource.data.status in ['accepted', 'rejected'])
+             // sender cancels their own pending request
+          || (resource.data.senderId == request.auth.uid
+               && resource.data.status == 'pending'
+               && request.resource.data.status == 'cancelled')
+             // sender may re-request after a rejection or cancellation, but never
+             // while a request is already pending (no re-spam loop)
+          || (resource.data.senderId == request.auth.uid
+               && resource.data.status in ['rejected', 'cancelled']
+               && request.resource.data.status == 'pending')
+             // sender may re-open a stale 'accepted' document after the friendship
+             // was severed (unfriend, or block → unblock). A LIVE friendship always
+             // has its accepted document alongside it, so requiring the friendship
+             // to be absent in both orderings proves the severing really happened —
+             // this can never undo a friendship that still exists.
+          || (resource.data.senderId == request.auth.uid
+               && resource.data.status == 'accepted'
+               && request.resource.data.status == 'pending'
+               && !exists(/databases/$(database)/documents/friendships/$(resource.data.senderId + "_" + resource.data.receiverId))
+               && !exists(/databases/$(database)/documents/friendships/$(resource.data.receiverId + "_" + resource.data.senderId)))
+           );
+
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------- friendships
+
+    // friendships/{memberA}_{memberB} with memberA < memberB, so exactly one
+    // deterministic document can ever exist per pair.
+    match /friendships/{pairId} {
+      // Same missing-document guard as friendRequests: areFriends() does a single
+      // getDoc() and must be able to see "not a friendship yet" instead of a
+      // permission error.
+      allow read: if signedIn() && (resource == null
+                                 || request.auth.uid in resource.data.members);
+
+      // Only the receiver of an accepted request may create the friendship, which
+      // is what stops one user from declaring a friendship on someone else's behalf.
+      // getAfter() is required because get() reads pre-transaction state, where the
+      // request is still 'pending'. A blocked pair can never become friends.
+      allow create: if signedIn()
+        && request.resource.data.members.size() == 2
+        && request.auth.uid in request.resource.data.members
+        && request.resource.data.members[0] < request.resource.data.members[1]
+        && pairId == request.resource.data.members[0] + "_" + request.resource.data.members[1]
+        && (
+             (request.auth.uid == request.resource.data.members[1]
+               && getAfter(/databases/$(database)/documents/friendRequests/$(request.resource.data.members[0] + "_" + request.resource.data.members[1])).data.status == 'accepted'
+               && !blockedPair(request.auth.uid, request.resource.data.members[0]))
+          || (request.auth.uid == request.resource.data.members[0]
+               && getAfter(/databases/$(database)/documents/friendRequests/$(request.resource.data.members[1] + "_" + request.resource.data.members[0])).data.status == 'accepted'
+               && !blockedPair(request.auth.uid, request.resource.data.members[1]))
+           );
+
+      allow update: if false;
+      allow delete: if signedIn() && request.auth.uid in resource.data.members;
+    }
+
+    // ------------------------------------------------------------- friend counts
+
+    // friendCounts/{uid} = { count, updatedAt }. The count is only ever a number —
+    // it never exposes WHO the friends are (see users/{uid}, which carries no
+    // member list). Every change must be provably coupled to the friendship change
+    // happening in the same batch:
+    //   - create: count == 1, alongside a friendship the caller just gained;
+    //   - update: ±1, alongside a friendship the caller just gained or lost.
+    // Documented residual: a tampered client can still nudge ITS OWN count by ±1
+    // (isSelf branch) because rules cannot discover the counterpart uid of a
+    // friendship from the count document path alone.
+    match /friendCounts/{uid} {
+      allow read: if isSelf(uid) || (signedIn() && !blockedPair(request.auth.uid, uid));
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['count', 'updatedAt'])
+        && request.resource.data.count is int
+        && request.resource.data.count == 1
+        && (isSelf(uid) || friendshipGained(uid));
+
+      allow update: if signedIn()
+        && request.resource.data.keys().hasOnly(['count', 'updatedAt'])
+        && request.resource.data.count is int
+        && resource.data.count is int
+        && (request.resource.data.count == resource.data.count + 1
+            || request.resource.data.count == resource.data.count - 1
+            || (resource.data.count == 0 && request.resource.data.count == 0))
+        && (isSelf(uid) || friendshipGained(uid) || friendshipLost(uid));
+
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------------- chats
+
+    // Direct messages. The conversation document id is the two uids sorted
+    // ascending — the same scheme as friendships — so one document per pair, and
+    // a conversation can only be read or written while the friendship does.
+    match /chats/{pairId} {
+      // get and list are split: a single conversation read may reference the
+      // friendship path (constant per conversation), but the overview list query
+      // cannot — after an unfriend the chat document remains while the friendship
+      // is gone, and one failing candidate would deny the whole list. The list
+      // rule therefore only checks membership; the UI drives rows from the live
+      // friends list, so stale conversations are simply never rendered.
+      allow get: if signedIn()
+        && request.auth.uid in resource.data.members
+        && exists(/databases/$(database)/documents/friendships/$(pairId));
+
+      allow list: if signedIn()
+        && request.auth.uid in resource.data.members;
+
+      allow create: if signedIn()
+        && request.resource.data.members.size() == 2
+        && request.auth.uid in request.resource.data.members
+        && request.resource.data.members[0] < request.resource.data.members[1]
+        && pairId == request.resource.data.members[0] + "_" + request.resource.data.members[1]
+        && exists(/databases/$(database)/documents/friendships/$(pairId))
+        && request.resource.data.lastMessage.fromUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['members', 'updatedAt', 'lastMessage']);
+
+      // Only the summary may ever change; the member list is frozen.
+      allow update: if signedIn()
+        && request.auth.uid in resource.data.members
+        && request.resource.data.members == resource.data.members
+        && exists(/databases/$(database)/documents/friendships/$(pairId))
+        && request.resource.data.lastMessage.fromUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['members', 'updatedAt', 'lastMessage']);
+
+      allow delete: if false;
+
+      // chats/{pairId}/messages/{messageId} — the two members write and read, and
+      // only while they are still friends. Messages are immutable once written.
+      match /messages/{messageId} {
+        allow read: if signedIn()
+          && (request.auth.uid == pairId.split("_")[0] || request.auth.uid == pairId.split("_")[1])
+          && exists(/databases/$(database)/documents/friendships/$(pairId));
+
+        allow create: if signedIn()
+          && request.resource.data.fromUid == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 2000
+          // Authoritative server time; clientAt is a client clock hint used only
+          // for local ordering and is never trusted for visibility decisions.
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.clientAt is int
+          && exists(/databases/$(database)/documents/friendships/$(pairId))
+          && request.resource.data.keys().hasOnly(['fromUid', 'text', 'createdAt', 'clientAt']);
+
+        allow update, delete: if false;
+      }
+    }
+
+    // -------------------------------------------------------------- usage data
+
+    // The 15-minute WorkManager snapshot. Owner writes, friends may read. Silent
+    // mode is a data-level state (the document is rewritten with zeroed values,
+    // shared flags all false and mode == 'silent'), not a rules bypass — a friend
+    // listener always stays permitted and simply receives the paused snapshot.
+    match /usageStats/{uid} {
+      allow read: if isSelf(uid) || (signedIn() && areFriends(request.auth.uid, uid));
+      allow write: if isSelf(uid);
+    }
+
+    // App configuration and update metadata — read-only for authenticated users.
+    // The document appConfig/updateMetadata holds version information for the
+    // in-app update system. No user can write to this collection; only Firebase
+    // Console administrators can update it.
+    match /appConfig/{configId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Live presence, if it is kept in Firestore instead of the Realtime Database.
+    // Blocking severs the friendship in the same batch, so areFriends() already
+    // denies blocked users; silent mode takes the owner offline (goOffline()).
+    match /presence/{uid} {
+      allow read: if isSelf(uid) || (signedIn() && areFriends(request.auth.uid, uid));
+      allow write: if isSelf(uid);
+    }
+
+    // ------------------------------------------------- stat reactions + comments
+
+    // statPosts/{ownerUid}_{day}/reactions/{reactorUid}   { uid, emoji, createdAt, expiresAt }
+    // statPosts/{ownerUid}_{day}/comments/{commentId}     { authorUid, ..., parentId, createdAt, expiresAt }
+    //
+    // The parent statPosts document is never written; the subcollections are the
+    // data. The document id embeds the owner's uid (uids never contain "_"), so the
+    // owner can be recovered with split() and the friendship check needs no parent
+    // read. The read rule references nothing from the queried document itself, so
+    // list queries are allowed or denied as a whole — no resource-data filter issue.
+    match /statPosts/{postId}/reactions/{reactorUid} {
+      allow read: if signedIn()
+        && (request.auth.uid == postId.split("_")[0]
+            || areFriends(request.auth.uid, postId.split("_")[0]));
+
+      // One reaction per person: the doc id is the reactor's uid, and setDoc()
+      // replaces the previous emoji instead of stacking a second one.
+      //
+      // The relationship check is REQUIRED here: without it any signed-in user
+      // could write a reaction to any stat whose document id they guessed. The
+      // authored fields must also stay compatible with the doc-id reactor.
+      allow create, update: if signedIn()
+        && request.auth.uid == reactorUid
+        && request.resource.data.uid == request.auth.uid
+        && (request.auth.uid == postId.split("_")[0]
+            || areFriends(request.auth.uid, postId.split("_")[0]))
+        // ASCII keys only: a value check against raw emoji would depend on the
+        // exact unicode form stored in this file.
+        && request.resource.data.emoji in ['heart', 'fire', 'thumbs', 'wow', 'laugh', 'clap']
+        && freshExpiry()
+        && request.resource.data.keys().hasOnly(['uid', 'emoji', 'createdAt', 'expiresAt']);
+
+      allow delete: if signedIn() && request.auth.uid == reactorUid;
+    }
+
+    match /statPosts/{postId}/comments/{commentId} {
+      allow read: if signedIn()
+        && (request.auth.uid == postId.split("_")[0]
+            || areFriends(request.auth.uid, postId.split("_")[0]));
+
+      allow create: if signedIn()
+        && request.resource.data.authorUid == request.auth.uid
+        && (request.auth.uid == postId.split("_")[0]
+            || areFriends(request.auth.uid, postId.split("_")[0]))
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 1000
+        && (request.resource.data.parentId == null || request.resource.data.parentId is string)
+        && freshExpiry()
+        && request.resource.data.keys().hasOnly([
+             'authorUid', 'authorName', 'authorHandle', 'authorColor',
+             'authorAvatarId', 'text', 'parentId', 'createdAt', 'expiresAt'
+           ]);
+
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.authorUid == request.auth.uid;
+    }
+
+    // ------------------------------------------------------------------ blocks
+
+    // blocks/{blockerUid}_{blockedUid} = { blockerUid, blockedUid, blockedName,
+    // blockedHandle, blockedColor, blockedAvatarId, createdAt }
+    //
+    // The document ID is derived from the pair, so blocking twice is the same
+    // document. Display fields for the blocked person are denormalized so the
+    // blocker's "Blocked accounts" list never needs to read the blocked person's
+    // profile. Both sides may READ a block document — that is how the blocked
+    // person's UI can explain the lost access — but only the blocker writes or
+    // removes it.
+    match /blocks/{blockId} {
+      allow read: if signedIn() && (resource == null
+                                 || resource.data.blockerUid == request.auth.uid
+                                 || resource.data.blockedUid == request.auth.uid);
+
+      // Creating a block REQUIRES that no friendship for the pair exists after
+      // this write. The client's block flow deletes the friendship in the same
+      // batch; a tampered client that blocks without severing cannot commit.
+      // This is what guarantees "blocked => never friends" for every other rule.
+      allow create: if signedIn()
+        && request.resource.data.blockerUid == request.auth.uid
+        && request.resource.data.blockedUid is string
+        && request.resource.data.blockedUid != request.auth.uid
+        && blockId == request.resource.data.blockerUid + "_" + request.resource.data.blockedUid
+        && request.resource.data.blockedName is string
+        && request.resource.data.blockedHandle is string
+        && request.resource.data.blockedColor is string
+        && (request.resource.data.blockedAvatarId == null
+            || request.resource.data.blockedAvatarId is string)
+        && request.resource.data.createdAt == request.time
+        && !existsAfter(/databases/$(database)/documents/friendships/$(request.auth.uid + "_" + request.resource.data.blockedUid))
+        && !existsAfter(/databases/$(database)/documents/friendships/$(request.resource.data.blockedUid + "_" + request.auth.uid))
+        && request.resource.data.keys().hasOnly([
+             'blockerUid', 'blockedUid', 'blockedName', 'blockedHandle',
+             'blockedColor', 'blockedAvatarId', 'createdAt'
+           ]);
+
+      // Re-blocking is not a transition; the UI only ever blocks someone who is
+      // not already blocked (their profile is unreachable once blocked).
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.blockerUid == request.auth.uid;
+    }
+
+    // ----------------------------------------------------------------- reports
+
+    // reports/{autoId} = { reporterUid, reportedUid, reason, details, createdAt }
+    //
+    // Write-only from the app: exactly one create with reporterUid == the caller,
+    // and NO read/update/delete for anyone — the reported person can never see,
+    // edit or delete a report about themselves. Review happens in the Firebase
+    // console. Reporting is deliberately separate from blocking: it changes no
+    // relationship state.
+    match /reports/{reportId} {
+      allow create: if signedIn()
+        && request.resource.data.reporterUid == request.auth.uid
+        && request.resource.data.reportedUid is string
+        && request.resource.data.reportedUid != request.auth.uid
+        && request.resource.data.reason in ['spam', 'harassment', 'impersonation', 'inappropriate', 'other']
+        && request.resource.data.details is string
+        && request.resource.data.details.size() <= 1000
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.keys().hasOnly([
+             'reporterUid', 'reportedUid', 'reason', 'details', 'createdAt'
+           ]);
+
+      allow read, update, delete: if false;
+    }
+
+    // ------------------------------------------------------------ notifications
+
+    // notifications/{autoId} = { toUid, fromUid, ..., read, createdAt, expiresAt }
+    // The client always queries with where("toUid", "==", uid), which is exactly
+    // the field the read rule checks, so the query is provably in-scope (Firestore
+    // requires that; it does not filter silently).
+    match /notifications/{notifId} {
+      allow read: if signedIn() && resource.data.toUid == request.auth.uid;
+
+      // Only a friend may notify you for social activity (reactions, comments,
+      // messages); a friend request may notify the receiver while it is actually
+      // pending. Relationship notifications are tied to the relationship change
+      // itself: 'unfriend' requires the friendship to be lost in this same batch,
+      // 'block' requires the block document to be created in it. A brand-new
+      // notification must start unread and carry a fresh 24h expiry.
+      allow create: if signedIn()
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.toUid != request.auth.uid
+        && request.resource.data.read == false
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 300
+        && freshExpiry()
+        && (
+             (request.resource.data.kind in ['reaction', 'comment', 'message']
+               && areFriends(request.auth.uid, request.resource.data.toUid))
+          || (request.resource.data.kind == 'friend_request'
+               && exists(/databases/$(database)/documents/friendRequests/$(request.auth.uid + "_" + request.resource.data.toUid))
+               && get(/databases/$(database)/documents/friendRequests/$(request.auth.uid + "_" + request.resource.data.toUid)).data.status == 'pending')
+          || (request.resource.data.kind == 'unfriend'
+               && friendshipLost(request.resource.data.toUid))
+          || (request.resource.data.kind == 'block'
+               && existsAfter(/databases/$(database)/documents/blocks/$(request.resource.data.fromUid + "_" + request.resource.data.toUid)))
+           )
+        && request.resource.data.keys().hasOnly([
+             'toUid', 'fromUid', 'fromName', 'fromColor', 'fromHandle',
+             'fromAvatarId', 'kind', 'text', 'link', 'read', 'createdAt', 'expiresAt'
+           ]);
+
+      // The recipient flips `read`; nothing else may change.
+      allow update: if signedIn()
+        && resource.data.toUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+
+      allow delete: if signedIn() && resource.data.toUid == request.auth.uid;
+    }
+  }
+}
