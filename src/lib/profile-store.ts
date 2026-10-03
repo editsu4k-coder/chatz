@@ -13,7 +13,7 @@ export type Socials = {
   instagram?: string;
   facebook?: string;
   twitter?: string;
-  linkedin?: string;
+  telegram?: string;
   whatsapp?: string;
 };
 
@@ -53,6 +53,10 @@ export type Profile = {
   color: string;
   /** Bundled avatar asset id, e.g. "avatar_017". Never an image URL or base64 payload. */
   avatarId?: string;
+  /** Equipped reward frame id, e.g. "frame_nova". */
+  frame?: string;
+  /** Owned reward frame ids. Empty/absent means the starter frame was never claimed. */
+  frames?: string[];
   goalHours: number;
   theme: Theme;
   accent: Accent;

@@ -56,7 +56,9 @@ export type PublicProfile = {
   bio?: string;
   /** Consecutive days the user has opened ChatZ. Written by bumpStreak on launch. */
   streak?: number;
-  /** Optional social links (instagram, x, github, website). */
+  /** Equipped reward avatar frame id, e.g. "frame_nova". */
+  frame?: string;
+  /** Optional social links (instagram, telegram, whatsapp, …). */
   socials?: Socials;
 };
 
@@ -158,6 +160,7 @@ function toPublicProfile(snap: QueryDocumentSnapshot | { id: string; data: () =>
     avatarId: (d.avatarId as string) ?? undefined,
     bio: asString(d.bio) || undefined,
     streak: asNumber(d.streak),
+    frame: asString(d.frame) || undefined,
     socials: hasSocials ? socials : undefined,
   };
 }
@@ -240,6 +243,10 @@ export async function loadProfile(uid: string): Promise<LoadedProfile> {
     bio: asString(d.bio) || undefined,
     location: asString(d.location) || undefined,
     socials: (d.socials as Socials) ?? {},
+    frame: asString(d.frame) || undefined,
+    frames: Array.isArray(d.frames)
+      ? (d.frames as unknown[]).filter((x): x is string => typeof x === "string")
+      : undefined,
     privacy: effectivePrivacy,
     mode: (p.mode as Profile["mode"]) ?? "active",
     email: asString(p.email) || undefined,
@@ -543,7 +550,16 @@ export async function syncLocalProfile(
   uid: string,
   profile: Pick<
     Profile,
-    "theme" | "accent" | "privacy" | "mode" | "socials" | "goalHours" | "color" | "avatarId"
+    | "theme"
+    | "accent"
+    | "privacy"
+    | "mode"
+    | "socials"
+    | "goalHours"
+    | "color"
+    | "avatarId"
+    | "frame"
+    | "frames"
   >,
 ): Promise<void> {
   const pub: Record<string, unknown> = {};
@@ -555,6 +571,8 @@ export async function syncLocalProfile(
   if (typeof profile.goalHours === "number") pub.goalHours = profile.goalHours;
   if (profile.color) pub.color = profile.color;
   if (profile.avatarId) pub.avatarId = profile.avatarId;
+  if (profile.frame) pub.frame = profile.frame;
+  if (profile.frames) pub.frames = profile.frames;
   if (profile.privacy) {
     priv.privacy = profile.privacy;
     pub.discoverable = profile.privacy.appearInSearch !== false;

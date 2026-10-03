@@ -11,13 +11,27 @@ import {
   Plus,
   Check,
   ExternalLink,
+  Globe,
   Loader2,
+  Lock,
   RefreshCw,
   BarChart3,
   Bell,
   BatteryCharging,
   Download,
+  Sparkles,
 } from "lucide-react";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { fetchFriendCount } from "@/lib/friends-repo";
+import {
+  AVATAR_FRAMES,
+  RARITY_LABEL,
+  RARITY_STYLE,
+  frameGoalLabel,
+  type AvatarFrameDef,
+} from "@/lib/avatar-frames";
+import { claimGoalFrame, claimStarterFrame, equipFrame } from "@/lib/frames-repo";
 import { Avatar } from "@/components/Avatar";
 import { ChatZMark } from "@/components/Logo";
 import { RestrictedSettingsNote } from "@/components/RestrictedSettingsNote";
@@ -72,7 +86,9 @@ function SettingsSection() {
             ? "About ChatZ"
             : section === "blocked"
               ? "Blocked Accounts"
-              : cap(section);
+              : section === "frames"
+                ? "Avatar Frames"
+                : cap(section);
 
   return (
     <>
@@ -94,7 +110,8 @@ function SettingsSection() {
         {section === "permissions" && <Permissions />}
         {section === "about" && <About />}
         {section === "blocked" && <Blocked />}
-        {!["privacy", "help", "permissions", "about", "blocked"].includes(section) && (
+        {section === "frames" && <Frames />}
+        {!["privacy", "help", "permissions", "about", "blocked", "frames"].includes(section) && (
           <p className="text-muted-foreground text-sm">Unknown section.</p>
         )}
       </div>
@@ -408,6 +425,12 @@ function Contacts() {
   return (
     <ul className="rounded-2xl bg-surface border border-border overflow-hidden not-prose">
       <ContactRow
+        icon={<Globe size={17} />}
+        label="Our Website"
+        sub="The official ChatZ site · chatz-website.vercel.app"
+        href="https://chatz-website.vercel.app"
+      />
+      <ContactRow
         icon={<LifeBuoy size={17} />}
         label="ChatZ Support"
         sub="Product help, privacy requests, account deletion · chatz.org@gmail.com"
@@ -427,6 +450,196 @@ function Contacts() {
         last
       />
     </ul>
+  );
+}
+
+/* -------------------- Avatar frames -------------------- */
+function Frames() {
+  const profile = useProfile();
+  const uid = profile?.uid;
+  const owned = profile?.frames ?? [];
+  const equipped = profile?.frame;
+  const [counters, setCounters] = useState<{ streak: number; friends: number } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Real counters from the server — the progress bars and claim checks must
+  // never lie about an achievement the user has not actually earned.
+  const loadCounters = useCallback(() => {
+    if (!uid) return;
+    Promise.all([
+      getDoc(doc(db, "users", uid)).then((s) => {
+        const v = (s.data() as Record<string, unknown> | undefined)?.streak;
+        return typeof v === "number" ? v : 0;
+      }),
+      fetchFriendCount(uid),
+    ])
+      .then(([streak, friends]) => setCounters({ streak, friends: friends ?? 0 }))
+      .catch(() => {});
+  }, [uid]);
+
+  useEffect(() => {
+    loadCounters();
+  }, [loadCounters]);
+
+  const say = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2800);
+  };
+
+  const claimStarter = async () => {
+    if (!uid || busy) return;
+    setBusy("starter");
+    try {
+      const frame = await claimStarterFrame(uid);
+      say(frame ? "Free frame claimed — it's equipped on your avatar!" : "Already claimed — check your frames below.");
+      loadCounters();
+    } catch {
+      say("Couldn't claim right now — check your connection.");
+    }
+    setBusy(null);
+  };
+
+  const claim = async (f: AvatarFrameDef) => {
+    if (!uid || busy) return;
+    setBusy(f.id);
+    try {
+      const ok = await claimGoalFrame(uid, f);
+      say(ok ? `${f.name} unlocked! Tap it to equip.` : "Not yet — finish the goal first.");
+      loadCounters();
+    } catch {
+      say("Couldn't claim right now — check your connection.");
+    }
+    setBusy(null);
+  };
+
+  const equip = (f: AvatarFrameDef) => {
+    if (!uid) return;
+    if (equipFrame(uid, f.id)) say(`${f.name} equipped.`);
+  };
+
+  const goalMet = (f: AvatarFrameDef): boolean => {
+    if (!counters) return false;
+    if (f.goal.kind === "streak") return counters.streak >= f.goal.days;
+    if (f.goal.kind === "friends") return counters.friends >= f.goal.count;
+    return true;
+  };
+
+  const progress = (f: AvatarFrameDef): string | null => {
+    if (!counters || f.goal.kind === "starter") return null;
+    if (f.goal.kind === "streak") return `streak ${Math.min(counters.streak, f.goal.days)}/${f.goal.days} days`;
+    return `friends ${Math.min(counters.friends, f.goal.count)}/${f.goal.count}`;
+  };
+
+  if (!profile) {
+    return <p className="text-[13px] text-muted-foreground">Sign in to see your frames.</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      {owned.length === 0 && (
+        <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4">
+          <div className="flex items-center gap-2.5">
+            <span className="w-10 h-10 rounded-full bg-primary/15 text-primary grid place-items-center shrink-0">
+              <Sparkles size={18} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[15px] font-semibold">A free frame is waiting</div>
+              <div className="text-[12px] text-muted-foreground leading-snug">
+                Your profile is complete — claim one random starter frame, on the house.
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={claimStarter}
+            disabled={busy === "starter"}
+            className="mt-3 w-full h-11 rounded-full bg-primary text-primary-foreground text-[14px] font-medium flex items-center justify-center gap-2 active:scale-[0.98] transition disabled:opacity-60"
+          >
+            {busy === "starter" ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+            Claim my free frame
+          </button>
+        </div>
+      )}
+
+      <p className="px-1 text-[12px] text-muted-foreground leading-relaxed">
+        Frames ring your avatar everywhere — Home, your profile, and your friends' screens.
+        Earn better ones by keeping your streak alive and growing your friend circle.
+      </p>
+
+      <div className="grid grid-cols-2 gap-2.5">
+        {AVATAR_FRAMES.map((f) => {
+          const isOwned = owned.includes(f.id);
+          const isEquipped = equipped === f.id;
+          const met = f.goal.kind === "starter" ? true : goalMet(f);
+          const isBusy = busy === f.id;
+          return (
+            <div
+              key={f.id}
+              className={`rounded-2xl border p-3.5 flex flex-col items-center text-center gap-2 ${
+                isEquipped ? "border-primary/50 bg-primary/5" : "border-border bg-surface"
+              }`}
+            >
+              <Avatar
+                name={profile.name}
+                color={profile.color}
+                avatarId={profile.avatarId}
+                frame={f.id}
+                size="lg"
+              />
+              <div className="flex items-center gap-1.5">
+                <span className="text-[14px] font-semibold">{f.name}</span>
+                <span
+                  className={`h-5 px-2 rounded-full text-[10px] font-semibold flex items-center ${RARITY_STYLE[f.rarity]}`}
+                >
+                  {RARITY_LABEL[f.rarity]}
+                </span>
+              </div>
+              <div className="text-[11px] text-muted-foreground leading-snug min-h-[28px]">
+                {isOwned ? frameGoalLabel(f) : frameGoalLabel(f)}
+                {!isOwned && progress(f) && (
+                  <div className="font-medium text-foreground/80 tabular-nums">{progress(f)}</div>
+                )}
+              </div>
+              {isEquipped ? (
+                <span className="w-full h-9 rounded-full bg-success/15 text-success text-[13px] font-semibold flex items-center justify-center gap-1.5">
+                  <Check size={14} /> Equipped
+                </span>
+              ) : isOwned ? (
+                <button
+                  onClick={() => equip(f)}
+                  className="w-full h-9 rounded-full bg-secondary text-foreground text-[13px] font-medium active:scale-[0.98] transition"
+                >
+                  Equip
+                </button>
+              ) : f.goal.kind === "starter" ? (
+                <span className="w-full h-9 rounded-full border border-border text-muted-foreground text-[12px] flex items-center justify-center gap-1.5">
+                  <Sparkles size={13} /> Starter drop
+                </span>
+              ) : met ? (
+                <button
+                  onClick={() => claim(f)}
+                  disabled={isBusy}
+                  className="w-full h-9 rounded-full bg-primary text-primary-foreground text-[13px] font-semibold flex items-center justify-center gap-1.5 active:scale-[0.98] transition disabled:opacity-60"
+                >
+                  {isBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  Claim
+                </button>
+              ) : (
+                <span className="w-full h-9 rounded-full border border-border text-muted-foreground text-[12px] flex items-center justify-center gap-1.5">
+                  <Lock size={13} /> Locked
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {toast && (
+        <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-50 max-w-[85%] rounded-full bg-foreground text-background text-[13px] font-medium px-4 py-2.5 shadow-lg">
+          {toast}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -650,31 +863,29 @@ function About() {
           trust — never a public feed, never ads.
         </p>
         
-        {/* Check for updates button */}
+        {/* Check for updates — label and width never change; only the icon
+            swaps to the circular ring, so the card never reflows mid-check. */}
         <button
           onClick={handleCheckForUpdates}
           disabled={checkingUpdate || !Capacitor.isNativePlatform()}
-          className="mt-4 h-10 px-5 rounded-full bg-primary text-primary-foreground text-[14px] font-medium flex items-center gap-2 active:scale-[0.98] transition disabled:opacity-50"
+          className="mt-4 h-10 px-5 rounded-full bg-primary text-primary-foreground text-[14px] font-medium flex items-center gap-2 active:scale-[0.98] transition disabled:opacity-70"
         >
           {checkingUpdate ? (
-            <>
-              <Loader2 size={16} className="animate-spin" />
-              Checking...
-            </>
+            <span
+              className="w-4 h-4 rounded-full border-2 border-primary-foreground/25 border-t-primary-foreground animate-spin"
+              role="status"
+              aria-label="Checking for updates"
+            />
           ) : (
-            <>
-              <Download size={16} />
-              Check for updates
-            </>
+            <Download size={16} />
           )}
+          Check for updates
         </button>
-        
-        {updateStatus && (
-          <p className="mt-2 text-[13px] text-success">{updateStatus}</p>
-        )}
-        {updateError && (
-          <p className="mt-2 text-[13px] text-destructive">{updateError}</p>
-        )}
+
+        <div className="mt-2 min-h-[20px]">
+          {updateStatus && <p className="text-[13px] text-success">{updateStatus}</p>}
+          {updateError && <p className="text-[13px] text-destructive">{updateError}</p>}
+        </div>
         {!Capacitor.isNativePlatform() && (
           <p className="mt-2 text-[11px] text-muted-foreground">
             Updates only available in the installed Android app

@@ -230,7 +230,7 @@ function FriendsTab({ myUid }: { myUid: string }) {
                 className="flex-1 min-w-0 flex items-center gap-3 text-left active:scale-[0.99]"
               >
                 <span className="relative shrink-0">
-                  <Avatar name={friend.name} color={friend.color} avatarId={friend.avatarId} size="md" />
+                  <Avatar name={friend.name} color={friend.color} avatarId={friend.avatarId} frame={friend.frame} size="md" />
                   {isOnline && (
                     <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 ring-2 ring-surface" />
                   )}
@@ -374,7 +374,7 @@ function FindTab({ myUid }: { myUid: string }) {
                 key={u.uid}
                 className="rounded-2xl bg-surface border border-border p-3 flex items-center gap-3"
               >
-                <Avatar name={u.name} color={u.color} avatarId={u.avatarId} size="md" />
+                <Avatar name={u.name} color={u.color} avatarId={u.avatarId} frame={u.frame} size="md" />
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-[15px] truncate">{u.name}</div>
                   <div className="text-[12px] text-muted-foreground truncate">@{u.handle}</div>

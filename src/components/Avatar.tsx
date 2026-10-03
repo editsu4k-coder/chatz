@@ -1,6 +1,8 @@
+import type { CSSProperties } from "react";
 import type { ReactNode } from "react";
 import { getInitials } from "@/lib/profile-store";
 import { avatarSpec, type AvatarArtKey, type AvatarPalette } from "@/lib/avatars";
+import { avatarFrame } from "@/lib/avatar-frames";
 
 type Size = "xs" | "sm" | "md" | "lg" | "xl" | "2xl" | "3xl";
 const SIZES: Record<Size, { box: string; text: string; dot: string }> = {
@@ -17,6 +19,7 @@ export function Avatar({
   name,
   color,
   avatarId,
+  frame,
   size = "md",
   className = "",
   square = false,
@@ -26,6 +29,8 @@ export function Avatar({
   color: string;
   /** Bundled avatar id (`avatar_017`). Falls back to initials when absent. */
   avatarId?: string;
+  /** Reward frame id (`frame_nova`). Replaces the colour ring when owned. */
+  frame?: string;
   size?: Size;
   className?: string;
   square?: boolean;
@@ -37,15 +42,33 @@ export function Avatar({
 
   // The personal colour is the avatar's frame: it rings every art avatar and
   // paints the background of initials avatars, so the choice stays visible
-  // everywhere the avatar is.
+  // everywhere the avatar is. A reward frame overrides that ring.
   const colorPaint = {
     background: `linear-gradient(135deg, ${color} 0%, ${shade(color, -15)} 100%)`,
   };
+  const frameDef = avatarFrame(frame);
+  const ringPaint: CSSProperties = frameDef
+    ? {
+        background: frameDef.background,
+        boxShadow: frameDef.glow,
+        backgroundSize: frameDef.animated ? "220% 220%" : undefined,
+      }
+    : colorPaint;
+  const ringClass = frameDef?.animated ? "frame-shine" : "";
 
   const inner = spec ? (
-    <div className={`${s.box} ${shape} p-[2px] flex-shrink-0`} style={colorPaint}>
+    <div className={`${s.box} ${shape} p-[2px] flex-shrink-0 ${ringClass}`} style={ringPaint}>
       <div className={`w-full h-full ${shape} overflow-hidden`}>
         <AvatarArt id={spec.id} className="w-full h-full block" />
+      </div>
+    </div>
+  ) : frameDef ? (
+    <div className={`${s.box} ${shape} p-[2.5px] flex-shrink-0 ${ringClass}`} style={ringPaint}>
+      <div
+        className={`w-full h-full ${shape} grid place-items-center font-semibold text-white ${s.text}`}
+        style={colorPaint}
+      >
+        {getInitials(name)}
       </div>
     </div>
   ) : (

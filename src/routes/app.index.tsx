@@ -115,6 +115,7 @@ function Pulse() {
   }, [friends]);
 
   const fetchStats = async () => {
+    const startedAt = Date.now();
     setLoading(true);
     setError(null);
     try {
@@ -139,6 +140,11 @@ function Pulse() {
       setError(err instanceof Error ? err.message : "Failed to load stats");
       setStats(null);
     } finally {
+      // Keep the ring visible at least 650ms — a fast collect would otherwise
+      // flash the spinner away and read as a glitch (same rule as the friend
+      // cards' refresh).
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < 650) await new Promise((r) => setTimeout(r, 650 - elapsed));
       setLoading(false);
     }
   };
@@ -245,6 +251,7 @@ function Pulse() {
                 name={profile.name}
                 color={profile.color}
                 avatarId={profile.avatarId}
+                frame={profile.frame}
                 size="xl"
               />
             )}
@@ -575,7 +582,7 @@ function FriendCard({
     >
       <div className="flex items-center gap-3">
         <Link to={profile} className="relative shrink-0">
-          <Avatar name={friend.name} color={friend.color} avatarId={friend.avatarId} size="md" />
+          <Avatar name={friend.name} color={friend.color} avatarId={friend.avatarId} frame={friend.frame} size="md" />
         </Link>
         <Link to={profile} className="flex-1 min-w-0">
           <div className="text-[15px] font-medium tracking-tight truncate">{friend.name}</div>

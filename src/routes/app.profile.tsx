@@ -51,6 +51,9 @@ import {
   Check,
   HelpCircle as HelpIcon,
   ShieldCheck,
+  Sparkles,
+  Globe,
+  ExternalLink,
 } from "lucide-react";
 
 export const Route = createFileRoute("/app/profile")({
@@ -106,7 +109,7 @@ function ProfilePage() {
         <section className="rounded-3xl bg-surface border border-border p-5">
           <div className="flex items-center gap-4">
             {profile && (
-              <Avatar name={profile.name} color={profile.color} avatarId={profile.avatarId} size="xl" />
+              <Avatar name={profile.name} color={profile.color} avatarId={profile.avatarId} frame={profile.frame} size="xl" />
             )}
             <div className="flex-1 min-w-0">
               <div className="text-lg font-semibold tracking-tight truncate">
@@ -245,6 +248,17 @@ function ProfilePage() {
 
         <section className="rounded-3xl bg-surface border border-border overflow-hidden">
           <LinkRow
+            label="Avatar frames"
+            icon={<Sparkles size={18} />}
+            to="/app/settings/frames"
+            dot={Boolean(profile?.hasOnboarded) && !(profile?.frames?.length ?? false)}
+          />
+          <LinkRow
+            label="Our Website"
+            icon={<Globe size={18} />}
+            href="https://chatz-website.vercel.app"
+          />
+          <LinkRow
             label="Appearance & theme"
             icon={<Palette size={18} />}
             to="/app/settings/theme"
@@ -368,12 +382,18 @@ function LinkRow({
   icon,
   onClick,
   to,
+  href,
+  dot,
   last,
 }: {
   label: string;
   icon?: React.ReactNode;
   onClick?: () => void;
   to?: string;
+  /** External link — opens in the system browser like the social chips do. */
+  href?: string;
+  /** Small amber dot: something on this row is waiting for the user. */
+  dot?: boolean;
   last?: boolean;
 }) {
   const inner = (
@@ -384,10 +404,21 @@ function LinkRow({
         </span>
       )}
       <span className="flex-1 text-[15px]">{label}</span>
-      <ChevronRight size={16} className="text-muted-foreground" />
+      {dot && <span className="w-2 h-2 rounded-full bg-warning shrink-0" />}
+      {href ? (
+        <ExternalLink size={15} className="text-muted-foreground" />
+      ) : (
+        <ChevronRight size={16} className="text-muted-foreground" />
+      )}
     </>
   );
   const cls = `w-full px-4 py-3.5 flex items-center gap-3 text-left ${last ? "" : "border-b border-border"} active:bg-secondary`;
+  if (href)
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={cls}>
+        {inner}
+      </a>
+    );
   if (to)
     return (
       <Link to={to as "/app/settings/theme"} className={cls}>

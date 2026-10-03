@@ -1,6 +1,6 @@
-import { Instagram, Facebook, Twitter, Linkedin } from "lucide-react";
+import { Instagram, Facebook, Twitter, Send } from "lucide-react";
 
-export type SocialKey = "instagram" | "facebook" | "twitter" | "linkedin" | "whatsapp";
+export type SocialKey = "instagram" | "facebook" | "twitter" | "telegram" | "whatsapp";
 
 export const SOCIAL_META: Record<SocialKey, {
   label: string;
@@ -30,12 +30,12 @@ export const SOCIAL_META: Record<SocialKey, {
     hint: "Open X → tap your avatar → your @handle is shown under your name.",
     toUrl: (v) => `https://x.com/${v.replace(/^@/, "")}`,
   },
-  linkedin: {
-    label: "LinkedIn",
-    brand: "#0A66C2",
-    placeholder: "your-id or full URL",
-    hint: "LinkedIn → Me → View Profile → Contact Info → copy your public profile URL.",
-    toUrl: (v) => (v.startsWith("http") ? v : `https://linkedin.com/in/${v}`),
+  telegram: {
+    label: "Telegram",
+    brand: "#229ED9",
+    placeholder: "@yourhandle or t.me link",
+    hint: "Telegram → Settings → Username → your @handle is shown there.",
+    toUrl: (v) => (v.startsWith("http") ? v : `https://t.me/${v.replace(/^@/, "")}`),
   },
   whatsapp: {
     label: "WhatsApp",
@@ -46,13 +46,13 @@ export const SOCIAL_META: Record<SocialKey, {
   },
 };
 
-export const SOCIAL_ORDER: SocialKey[] = ["instagram", "facebook", "twitter", "linkedin", "whatsapp"];
+export const SOCIAL_ORDER: SocialKey[] = ["instagram", "facebook", "twitter", "telegram", "whatsapp"];
 
 export function SocialIcon({ k, size = 18, className = "" }: { k: SocialKey; size?: number; className?: string }) {
   if (k === "instagram") return <Instagram size={size} className={className} />;
   if (k === "facebook") return <Facebook size={size} className={className} />;
   if (k === "twitter") return <XLogo size={size} className={className} />;
-  if (k === "linkedin") return <Linkedin size={size} className={className} />;
+  if (k === "telegram") return <Send size={size} className={className} />;
   return <WhatsAppLogo size={size} className={className} />;
 }
 

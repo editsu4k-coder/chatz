@@ -15,7 +15,14 @@ import { Activity, RefreshCw, ShieldAlert, Users, User as UserIcon } from "lucid
 import { isChatUnread, useChatsOverview, useReadMarkers } from "@/lib/dm-repo";
 import { useNotifs } from "@/lib/notifications-store";
 import { UpdateScreen } from "@/components/UpdateScreen";
-import { checkForUpdates, listenForUpdates, type UpdateInfo } from "@/lib/update-repo";
+import {
+  checkForUpdates,
+  getLastNotifiedVersion,
+  listenForUpdates,
+  setLastNotifiedVersion,
+  type UpdateInfo,
+} from "@/lib/update-repo";
+import { claimStarterFrame } from "@/lib/frames-repo";
 
 export const Route = createFileRoute("/app")({
   component: AppShell,
@@ -32,6 +39,8 @@ function syncable(p: Profile): string {
     goalHours: p.goalHours,
     color: p.color,
     avatarId: p.avatarId ?? null,
+    frame: p.frame ?? null,
+    frames: p.frames ?? [],
   });
 }
 
@@ -86,6 +95,7 @@ function AppShell() {
   const [showUpdateScreen, setShowUpdateScreen] = useState(false);
   const [updateCheckComplete, setUpdateCheckComplete] = useState(false);
   const updateCheckedRef = useRef(false);
+  const framesClaimedRef = useRef(false);
 
   /**
    * Privacy gates change both the native worker prefs and the friend-facing
@@ -173,6 +183,7 @@ function AppShell() {
             checkForUpdates(false)
               .then((result) => {
                 if (result.hasUpdate && result.updateInfo) {
+                  setLastNotifiedVersion(result.updateInfo.latestVersionCode);
                   setUpdateInfo(result.updateInfo);
                   setShowUpdateScreen(true);
                 }
@@ -185,6 +196,18 @@ function AppShell() {
           } else {
             // Skip update check on web or already checked
             setUpdateCheckComplete(true);
+          }
+
+          // Starter avatar frame: one random frame for every completed profile.
+          // claimStarterFrame reads the server first and no-ops once any frame
+          // is owned, so this is safe on every launch — fresh signups claim
+          // theirs, and users upgrading from a pre-frames build get theirs
+          // automatically without having to do anything.
+          if (!framesClaimedRef.current) {
+            framesClaimedRef.current = true;
+            if (session.profile.uid && !session.profile.frames?.length) {
+              claimStarterFrame(session.profile.uid).catch(() => {});
+            }
           }
           return;
       }
@@ -204,31 +227,37 @@ function AppShell() {
   }, [navigate, attempt]);
 
   // Real-time update listener for active users.
-  // Listens to Firestore metadata changes and shows update popup immediately
-  // when a new version is published, without requiring app restart.
+  // Listens to Firestore metadata changes and reacts the moment a new version
+  // is published — no app restart needed. Foreground users get the update card;
+  // backgrounded users get a real device notification instead (the card would
+  // be invisible to them). This only fires while the process is alive — a
+  // frozen/killed app converges on the next cold start's update check.
   useEffect(() => {
     if (!Capacitor.isNativePlatform() || !ready) return;
 
     const cleanup = listenForUpdates((metadata) => {
-      console.log("Update metadata changed:", metadata);
-      
-      // Only show popup if this is actually a newer version than current
-      if (metadata.latestVersionCode > 0) {
-        // Check if we already showed this version
-        import("@/lib/update-repo").then(({ getLastNotifiedVersion }) => {
-          getLastNotifiedVersion().then((lastNotified) => {
-            if (metadata.latestVersionCode !== lastNotified) {
-              // New version detected - fetch full metadata and show popup
-              checkForUpdates(true).then((result) => {
-                if (result.hasUpdate && result.updateInfo) {
-                  setUpdateInfo(result.updateInfo);
-                  setShowUpdateScreen(true);
-                }
+      const code = metadata.latestVersionCode;
+      if (code <= 0) return;
+      getLastNotifiedVersion()
+        .then((lastNotified) => {
+          if (code === lastNotified) return;
+          return checkForUpdates(true).then((result) => {
+            if (!result.hasUpdate || !result.updateInfo) return;
+            setLastNotifiedVersion(code);
+            if (document.visibilityState === "visible") {
+              setUpdateInfo(result.updateInfo);
+              setShowUpdateScreen(true);
+            } else {
+              VibeStats.notify({
+                id: `update-${code}`,
+                title: "A ChatZ update is waiting",
+                body: `v${result.updateInfo.latestVersionName} — ${result.updateInfo.title || "open the app to update"}`,
+                channel: "social",
               }).catch(() => {});
             }
           });
-        }).catch(() => {});
-      }
+        })
+        .catch(() => {});
     });
 
     return () => {

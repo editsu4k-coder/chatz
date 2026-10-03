@@ -24,7 +24,7 @@ import {
   Instagram,
   Facebook,
   Twitter,
-  Linkedin,
+  Send,
   Globe,
   MoreVertical,
   UserX,
@@ -328,7 +328,7 @@ function UserProfile() {
           {/* Identity hero */}
           <section className="rounded-3xl bg-surface border border-border/60 px-5 pt-6 pb-5 flex flex-col items-center text-center">
             <span className="relative">
-              <Avatar name={user.name} color={user.color} avatarId={user.avatarId} size="2xl" />
+              <Avatar name={user.name} color={user.color} avatarId={user.avatarId} frame={user.frame} size="2xl" />
               {presence?.online && (
                 <span className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-emerald-500 ring-[3px] ring-surface" />
               )}
@@ -720,13 +720,13 @@ function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || "They";
 }
 
-type SocialKind = "instagram" | "facebook" | "twitter" | "linkedin" | "whatsapp";
+type SocialKind = "instagram" | "facebook" | "twitter" | "telegram" | "whatsapp";
 
 const SOCIAL_META: Record<SocialKind, { label: string; icon: ReactNode; host: string }> = {
   instagram: { label: "Instagram", icon: <Instagram size={14} />, host: "instagram.com" },
   facebook: { label: "Facebook", icon: <Facebook size={14} />, host: "facebook.com" },
   twitter: { label: "X", icon: <Twitter size={14} />, host: "x.com" },
-  linkedin: { label: "LinkedIn", icon: <Linkedin size={14} />, host: "linkedin.com/in" },
+  telegram: { label: "Telegram", icon: <Send size={14} />, host: "t.me" },
   whatsapp: { label: "WhatsApp", icon: <Globe size={14} />, host: "wa.me" },
 };
 
